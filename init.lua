@@ -1,7 +1,6 @@
-
 MOD_NAME = minetest.get_current_modname();
 MOD_PATH = minetest.get_modpath(MOD_NAME);
-
+require("debugger")("127.0.0.1", 10000,"luaidekey")
 -- request http_api for being able to send httprequest
 -- note you MUST give the http 
 local http_api = minetest.request_http_api and minetest.request_http_api()
@@ -10,11 +9,15 @@ if not http_api then
 	minetest.log("===================================================================")
 	return false
 end
+-- debugger for eclipse!
 
-require("mobdebug").start()
-dofile(MOD_PATH.."/helper.lua")
+--require("mobdebug").start()
+dofile(MOD_PATH.."/basic.lua")
+dofile(MOD_PATH.."/utf8.lua")
 
+--
 -- globals for this mod
+--
 vikidia = {
 	search = "",
 	formname = "vikidia.prova",
@@ -29,10 +32,10 @@ vikidia = {
 			"field[1.4,2.6;5,0.8;search;search;${search}]",
 			"textarea[0.9,4.5;9,5.9;;trovato;${desc}]"},""),
 	api = http_api,
+	desc = "",
 
 }
 
-print(1)
 
 
 minetest.register_on_player_receive_fields(function(player, formname, fields)
@@ -45,10 +48,10 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 
 		local player_name = player:get_player_name()
 		--minetest.close_formspec(player_name,"prova")
-		minetest.log("called with fields\n"..inspect(fields))
+		--minetest.log("called with fields\n"..inspect(fields))
 		local vikidiasearch = fields.search
-		local site = "it.vikidia.org"
-		local url = vikidia.composeUrl % { site = vikidia.site, title = vikidia.search }
+		
+		local url = vikidia.composeUrl % { site = vikidia.site, title = vikidiasearch }
 
 		local function fetch_callback(result)
 			if not result.completed then
@@ -56,14 +59,14 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 			end
 			local desc = result.data:match('.*extract":"(.*)"}}}}')
 			if(desc) then
-				local desc = desc:gsub( "\\u00e8", "è")
+				vikidia.desc = string.gsub(getUtf8(desc),"\\n"," ")
 				local formspec = vikidia.composeFormspec % { search = vikidia.search, desc = vikidia.desc }
 
-				minetest.show_formspec(player_name, "prova", formspec)
+				minetest.show_formspec(player_name, vikidia.formname, formspec)
 			end
 		end  
 
-		http_api.fetch({url = url, timeout = receive_interval}, fetch_callback)  
+		http_api.fetch({url = url, timeout = 10}, fetch_callback)  
 
 
 	end)
@@ -79,12 +82,9 @@ minetest.register_node("vikidia:sign", {
 		on_rightclick = function(pos, node, player, itemstack, pointed_thing)
 			local player_name = player:get_player_name()
 
-			local formspec = 
-			"formspec_version[4]size[10.5,11]button_exit[7.5,0.1;3,1;;Exit]button[6.7,2.5;3,1.1;;Ricerca Vikidia]field[1.4,2.6;5,0.8;search;search;]textarea[0.9,4.5;9,5.9;;trovato;]"
-			-- table.concat is faster than string concatenation - `..`
-			-- table.concat(formspec, "")
-
-			minetest.show_formspec(player_name, "prova", formspec)
+			local formspec = vikidia.composeFormspec % { search = vikidia.search, desc = vikidia.desc }	
+      minetest.log(formspec)
+			minetest.show_formspec(player_name, vikidia.formname, formspec)
 		end	
 
 	})
