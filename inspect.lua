@@ -1,322 +1,336 @@
--- Copyright 2012-17 Paul Kulchenko, ZeroBrane LLC
--- Integration with LuaInspect or LuaCheck
----------------------------------------------------------
+local inspect ={
+  _VERSION = 'inspect.lua 3.1.0',
+  _URL     = 'http://github.com/kikito/inspect.lua',
+  _DESCRIPTION = 'human-readable representations of tables',
+  _LICENSE = [[
+    MIT LICENSE
 
-local warnings_from_string
+    Copyright (c) 2013 Enrique García Cota
 
-if ide.config.staticanalyzer.luacheck then
-  local config = type(ide.config.staticanalyzer.luacheck) == "table" and ide.config.staticanalyzer.luacheck or {}
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the
+    "Software"), to deal in the Software without restriction, including
+    without limitation the rights to use, copy, modify, merge, publish,
+    distribute, sublicense, and/or sell copies of the Software, and to
+    permit persons to whom the Software is furnished to do so, subject to
+    the following conditions:
 
-  local luacheck = require("luacheck")
+    The above copyright notice and this permission notice shall be included
+    in all copies or substantial portions of the Software.
 
-  -- globals only need to be generated once the API has changed.
-  -- maybe this can be a module instead?
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+    OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+    MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+    IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+    CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+    TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+    SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+  ]]
+}
 
-  local function build_env_from_api(tbl, out)
-    out = out or {}
-    for k, v in pairs(tbl) do
-      if v.type ~= "keyword" then
-        out[k] = {fields = v.childs and build_env_from_api(v.childs)}
-      end
-    end
-    return out
+local tostring = tostring
+
+inspect.KEY       = setmetatable({}, {__tostring = function() return 'inspect.KEY' end})
+inspect.METATABLE = setmetatable({}, {__tostring = function() return 'inspect.METATABLE' end})
+
+local function rawpairs(t)
+  return next, t, nil
+end
+
+-- Apostrophizes the string if it has quotes, but not aphostrophes
+-- Otherwise, it returns a regular quoted string
+local function smartQuote(str)
+  if str:match('"') and not str:match("'") then
+    return "'" .. str .. "'"
+  end
+  return '"' .. str:gsub('"', '\\"') .. '"'
+end
+
+-- \a => '\\a', \0 => nil
+local shortControlCharEscapes = {
+  ["\a"] = "\\a",  ["\b"] = "\\b", ["\f"] = "\\f", ["\n"] = "\\n",
+  ["\r"] = "\\r",  ["\t"] = "\\t", ["\v"] = "\\v", ["\127"] = "\\127",
+}
+local longControlCharEscapes = {["\127"]="\127"} -- \a => nil, \0 => \000, 31 => \031
+for i=0, 31 do
+  local ch = string.char(i)
+  if not shortControlCharEscapes[ch] then
+    shortControlCharEscapes[ch] = "\\"..i
+    longControlCharEscapes[ch]  = string.format("\\%03d", i)
+  end
+end
+--longControlCharEscapes["\127"]="\\127"
+
+local function escape(str)
+  return (str:gsub("\\", "\\\\")
+             :gsub("(%c)%f[0-9]", longControlCharEscapes)
+             :gsub("%c", shortControlCharEscapes))
+end
+
+local function isIdentifier(str)
+  return type(str) == 'string' and str:match( "^[_%a][_%a%d]*$" )
+end
+
+local function isSequenceKey(k, sequenceLength)
+  return type(k) == 'number'
+     and 1 <= k
+     and k <= sequenceLength
+     and math.floor(k) == k
+end
+
+local defaultTypeOrders = {
+  ['number']   = 1, ['boolean']  = 2, ['string'] = 3, ['table'] = 4,
+  ['function'] = 5, ['userdata'] = 6, ['thread'] = 7
+}
+
+local function sortKeys(a, b)
+  local ta, tb = type(a), type(b)
+
+  -- strings and numbers are sorted numerically/alphabetically
+  if ta == tb and (ta == 'string' or ta == 'number') then return a < b end
+
+  local dta, dtb = defaultTypeOrders[ta], defaultTypeOrders[tb]
+  -- Two default types are compared according to the defaultTypeOrders table
+  if dta and dtb then return defaultTypeOrders[ta] < defaultTypeOrders[tb]
+  elseif dta     then return true  -- default types before custom ones
+  elseif dtb     then return false -- custom types after default ones
   end
 
-  local function build_env()
-    local globals = {}
+  -- custom types are sorted out alphabetically
+  return ta < tb
+end
 
-    for _, api in pairs(ide:GetInterpreter():GetAPI()) do
-      -- not sure if this is how you're supposed to get an api
-      local ok, tbl = pcall(require, "api/lua/" .. api)
-      if ok then
-        build_env_from_api(tbl, globals)
-      end
+-- For implementation reasons, the behavior of rawlen & # is "undefined" when
+-- tables aren't pure sequences. So we implement our own # operator.
+local function getSequenceLength(t)
+  local len = 1
+  local v = rawget(t,len)
+  while v ~= nil do
+    len = len + 1
+    v = rawget(t,len)
+  end
+  return len - 1
+end
+
+local function getNonSequentialKeys(t)
+  local keys, keysLength = {}, 0
+  local sequenceLength = getSequenceLength(t)
+  for k,_ in rawpairs(t) do
+    if not isSequenceKey(k, sequenceLength) then
+      keysLength = keysLength + 1
+      keys[keysLength] = k
     end
+  end
+  table.sort(keys, sortKeys)
+  return keys, keysLength, sequenceLength
+end
 
-    return globals
+local function countTableAppearances(t, tableAppearances)
+  tableAppearances = tableAppearances or {}
+
+  if type(t) == 'table' then
+    if not tableAppearances[t] then
+      tableAppearances[t] = 1
+      for k,v in rawpairs(t) do
+        countTableAppearances(k, tableAppearances)
+        countTableAppearances(v, tableAppearances)
+      end
+      countTableAppearances(getmetatable(t), tableAppearances)
+    else
+      tableAppearances[t] = tableAppearances[t] + 1
+    end
   end
 
-  warnings_from_string = function(src, file)
-    local data = luacheck.check_strings({src}, config.options or {
-      max_line_length = false,
-      std = {
-        globals = build_env(),
-      },
-      -- http://luacheck.readthedocs.io/en/stable/warnings.html
-      ignore = config.ignore or {
-        "11.", -- setting, accessing and mutating globals
-        "6..", -- whitespace and style warnings
-      },
-    })
+  return tableAppearances
+end
 
-    -- I think luacheck can support showing multiple errors
-    -- but warnings_from_string is meant to only show one
-    if data.errors > 0 or data.fatals > 0 then
-      local report = data[1][1]
-      return nil, luacheck.get_message(report), report.line, report.column
-    end
+local copySequence = function(s)
+  local copy, len = {}, #s
+  for i=1, len do copy[i] = s[i] end
+  return copy, len
+end
 
-    local warnings = {}
-
-    for _, report in ipairs(data[1]) do
-      local str = luacheck.get_message(report)
-
-      if config.reportcode then
-        str = str .. "(" .. report.code .. ")"
-      end
-
-      table.insert(warnings, ("%s:%d:%d: %s"):format(
-          file,
-          report.line,
-          report.column, -- not standard when using luainspect
-          str
-      ))
-    end
-
-    return warnings
+local function makePath(path, ...)
+  local keys = {...}
+  local newPath, len = copySequence(path)
+  for i=1, #keys do
+    newPath[len + i] = keys[i]
   end
-else
-  local LA, LI, T
+  return newPath
+end
 
-  local current_ast
-  local current_src
-  local current_file
+local function processRecursive(process, item, path, visited)
+  if item == nil then return nil end
+  if visited[item] then return visited[item] end
 
-  local function init()
-    if LA then return end
+  local processed = process(item, path)
+  if type(processed) == 'table' then
+    local processedCopy = {}
+    visited[item] = processedCopy
+    local processedKey
 
-    -- metalua is using 'checks', which noticeably slows the execution
-    -- stab it with out own
-    package.loaded.checks = {} -- make `require 'checks'` work even without `checks` module
-    rawset(_G, "checks", function() end) -- provide `checks` function
-
-    LA = require "luainspect.ast"
-    LI = require "luainspect.init"
-    T = require "luainspect.types"
-  end
-
-  local function pos2line(pos)
-    return pos and 1 + select(2, current_src:sub(1,pos):gsub(".-\n[^\n]*", ""))
-  end
-
-  local function show_warnings(top_ast, globinit)
-    local warnings = {}
-    local function warn(msg, linenum, path)
-      warnings[#warnings+1] = (path or current_file or "?") .. ":" .. (linenum or pos2line(current_ast.pos) or 0) .. ": " .. msg
+    for k,v in rawpairs(processed) do
+      processedKey = processRecursive(process, k, makePath(path, k, inspect.KEY), visited)
+      if processedKey ~= nil then
+        processedCopy[processedKey] = processRecursive(process, v, makePath(path, processedKey), visited)
+      end
     end
-    local function known(o) return not T.istype[o] end
-    local function index(f) -- build abc.def.xyz name recursively
-      if not f or f.tag ~= 'Index' or not f[1] or not f[2] then return end
-      local main = f[1].tag == 'Id' and f[1][1] or index(f[1])
-      return main and type(f[2][1]) == "string" and (main .. '.' .. f[2][1]) or nil
-    end
-    local globseen, isseen, fieldseen = globinit or {}, {}, {}
-    LA.walk(top_ast, function(ast)
-      current_ast = ast
-      local path, line = tostring(ast.lineinfo):gsub('<C|','<'):match('<([^|]+)|L(%d+)')
-      local name = ast[1]
-      -- check if we're masking a variable in the same scope
-      if ast.localmasking and name ~= '_' and
-         ast.level == ast.localmasking.level then
-        local linenum = ast.localmasking.lineinfo
-          and tostring(ast.localmasking.lineinfo.first):match('|L(%d+)')
-          or pos2line(ast.localmasking.pos)
-        local parent = ast.parent and ast.parent.parent
-        local func = parent and parent.tag == 'Localrec'
-        warn("local " .. (func and 'function' or 'variable') .. " '" ..
-          name .. "' masks earlier declaration " ..
-          (linenum and "on line " .. linenum or "in the same scope"),
-          line, path)
+
+    local mt  = processRecursive(process, getmetatable(processed), makePath(path, inspect.METATABLE), visited)
+    if type(mt) ~= 'table' then mt = nil end -- ignore not nil/table __metatable field
+    setmetatable(processedCopy, mt)
+    processed = processedCopy
+  end
+  return processed
+end
+
+
+
+-------------------------------------------------------------------
+
+local Inspector = {}
+local Inspector_mt = {__index = Inspector}
+
+function Inspector:puts(...)
+  local args   = {...}
+  local buffer = self.buffer
+  local len    = #buffer
+  for i=1, #args do
+    len = len + 1
+    buffer[len] = args[i]
+  end
+end
+
+function Inspector:down(f)
+  self.level = self.level + 1
+  f()
+  self.level = self.level - 1
+end
+
+function Inspector:tabify()
+  self:puts(self.newline, string.rep(self.indent, self.level))
+end
+
+function Inspector:alreadyVisited(v)
+  return self.ids[v] ~= nil
+end
+
+function Inspector:getId(v)
+  local id = self.ids[v]
+  if not id then
+    local tv = type(v)
+    id              = (self.maxIds[tv] or 0) + 1
+    self.maxIds[tv] = id
+    self.ids[v]     = id
+  end
+  return tostring(id)
+end
+
+function Inspector:putKey(k)
+  if isIdentifier(k) then return self:puts(k) end
+  self:puts("[")
+  self:putValue(k)
+  self:puts("]")
+end
+
+function Inspector:putTable(t)
+  if t == inspect.KEY or t == inspect.METATABLE then
+    self:puts(tostring(t))
+  elseif self:alreadyVisited(t) then
+    self:puts('<table ', self:getId(t), '>')
+  elseif self.level >= self.depth then
+    self:puts('{...}')
+  else
+    if self.tableAppearances[t] > 1 then self:puts('<', self:getId(t), '>') end
+
+    local nonSequentialKeys, nonSequentialKeysLength, sequenceLength = getNonSequentialKeys(t)
+    local mt                = getmetatable(t)
+
+    self:puts('{')
+    self:down(function()
+      local count = 0
+      for i=1, sequenceLength do
+        if count > 0 then self:puts(',') end
+        self:puts(' ')
+        self:putValue(t[i])
+        count = count + 1
       end
-      if ast.localdefinition == ast and not ast.isused and
-         not ast.isignore then
-        local parent = ast.parent and ast.parent.parent
-        local isparam = parent and parent.tag == 'Function'
-        if isparam then
-          if name ~= 'self' then
-            local func = parent.parent and parent.parent.parent
-            local assignment = not func.tag or func.tag == 'Set' or func.tag == 'Localrec'
-            -- anonymous functions can also be defined in expressions,
-            -- for example, 'Op' or 'Return' tags
-            local expression = not assignment and func.tag
-            local func1 = func[1][1]
-            local fname = assignment and func1 and type(func1[1]) == 'string'
-              and func1[1] or (func1 and func1.tag == 'Index' and index(func1))
-            -- "function foo(bar)" => func.tag == 'Set'
-            --   `Set{{`Id{"foo"}},{`Function{{`Id{"bar"}},{}}}}
-            -- "local function foo(bar)" => func.tag == 'Localrec'
-            -- "local _, foo = 1, function(bar)" => func.tag == 'Local'
-            -- "print(function(bar) end)" => func.tag == nil
-            -- "a = a or function(bar) end" => func.tag == nil
-            -- "return(function(bar) end)" => func.tag == 'Return'
-            -- "function tbl:foo(bar)" => func.tag == 'Set'
-            --   `Set{{`Index{`Id{"tbl"},`String{"foo"}}},{`Function{{`Id{"self"},`Id{"bar"}},{}}}}
-            -- "function tbl.abc:foo(bar)" => func.tag == 'Set'
-            --   `Set{{`Index{`Index{`Id{"tbl"},`String{"abc"}},`String{"foo"}}},{`Function{{`Id{"self"},`Id{"bar"}},{}}}},
-            warn("unused parameter '" .. name .. "'" ..
-                 (func and (assignment or expression)
-                       and (fname and func.tag
-                                 and (" in function '" .. fname .. "'")
-                                 or " in anonymous function")
-                       or ""),
-                 line, path)
-          end
-        else
-          if parent and parent.tag == 'Localrec' then -- local function foo...
-            warn("unused local function '" .. name .. "'", line, path)
-          else
-            warn("unused local variable '" .. name .. "'; "..
-                 "consider removing or replacing with '_'", line, path)
-          end
-        end
+
+      for i=1, nonSequentialKeysLength do
+        local k = nonSequentialKeys[i]
+        if count > 0 then self:puts(',') end
+        self:tabify()
+        self:putKey(k)
+        self:puts(' = ')
+        self:putValue(t[k])
+        count = count + 1
       end
-      -- added check for "fast" mode as ast.seevalue relies on value evaluation,
-      -- which is very slow even on simple and short scripts
-      if ide.config.staticanalyzer.infervalue and ast.isfield
-      and not(known(ast.seevalue.value) and ast.seevalue.value ~= nil) then
-        local var = index(ast.parent)
-        local parent = ast.parent and var
-          and (" in '"..var:gsub("%."..name.."$","").."'")
-          or ""
-        if not fieldseen[name..parent] then
-          fieldseen[name..parent] = true
-          local tblref = ast.parent and ast.parent[1]
-          local localparam = (tblref and tblref.localdefinition
-            and tblref.localdefinition.isparam)
-          if not localparam then
-            warn("first use of unknown field '" .. name .."'"..parent,
-              ast.lineinfo and tostring(ast.lineinfo.first):match('|L(%d+)'), path)
-          end
-        end
-      elseif ast.tag == 'Id' and not ast.localdefinition and not ast.definedglobal then
-        if not globseen[name] then
-          globseen[name] = true
-          local parent = ast.parent
-          -- if being called and not one of the parameters
-          if parent and parent.tag == 'Call' and parent[1] == ast then
-            warn("first use of unknown global function '" .. name .. "'", line, path)
-          else
-            warn("first use of unknown global variable '" .. name .. "'", line, path)
-          end
-        end
-      elseif ast.tag == 'Id' and not ast.localdefinition and ast.definedglobal then
-        local parent = ast.parent and ast.parent.parent
-        if parent and parent.tag == 'Set' and not globseen[name] -- report assignments to global
-          -- only report if it is on the left side of the assignment
-          -- this is a bit tricky as it can be assigned as part of a, b = c, d
-          -- `Set{ {lhs+} {expr+} } -- lhs1, lhs2... = e1, e2...
-          and parent[1] == ast.parent
-          and parent[2][1].tag ~= "Function" then -- but ignore global functions
-          warn("first assignment to global variable '" .. name .. "'", line, path)
-          globseen[name] = true
-        end
-      elseif (ast.tag == 'Set' or ast.tag == 'Local') and #(ast[2]) > #(ast[1]) then
-        warn(("value discarded in multiple assignment: %d values assigned to %d variable%s")
-          :format(#(ast[2]), #(ast[1]), #(ast[1]) > 1 and 's' or ''), line, path)
-      end
-      local vast = ast.seevalue or ast
-      local note = vast.parent
-               and (vast.parent.tag == 'Call' or vast.parent.tag == 'Invoke')
-               and vast.parent.note
-      if note and not isseen[vast.parent] and type(name) == "string" then
-        isseen[vast.parent] = true
-        warn("function '" .. name .. "': " .. note, line, path)
+
+      if type(mt) == 'table' then
+        if count > 0 then self:puts(',') end
+        self:tabify()
+        self:puts('<metatable> = ')
+        self:putValue(mt)
       end
     end)
-    return warnings
-  end
 
-  local function cleanError(err)
-    return err and err:gsub(".-:%d+: file%s+",""):gsub(", line (%d+), char %d+", ":%1")
-  end
-
-  init()
-
-  warnings_from_string = function(src, file)
-    init()
-
-    local ast, err, linenum, colnum = LA.ast_from_string(src, file)
-    if not ast and err then return nil, cleanError(err), linenum, colnum end
-
-    LI.uninspect(ast)
-    if ide.config.staticanalyzer.infervalue then
-      local tokenlist = LA.ast_to_tokenlist(ast, src)
-      LI.clear_cache()
-      LI.inspect(ast, tokenlist, src)
-      LI.mark_related_keywords(ast, tokenlist, src)
-    else
-      -- stub out LI functions that depend on tokenlist,
-      -- which is not built in the "fast" mode
-      local ec, iv = LI.eval_comments, LI.infer_values
-      LI.eval_comments, LI.infer_values = function() end, function() end
-
-      LI.inspect(ast, nil, src)
-      LA.ensure_parents_marked(ast)
-
-      LI.eval_comments, LI.infer_values = ec, iv
+    if nonSequentialKeysLength > 0 or type(mt) == 'table' then -- result is multi-lined. Justify closing }
+      self:tabify()
+    elseif sequenceLength > 0 then -- array tables have one extra space before closing }
+      self:puts(' ')
     end
 
-    local globinit = {arg = true} -- skip `arg` global variable
-    local spec = ide:FindSpec(wx.wxFileName(file):GetExt())
-    for k in pairs(spec and GetApi(spec.apitype or "none").ac.childs or {}) do
-      globinit[k] = true
-    end
-
-    current_src = src
-    current_file = file
-    return show_warnings(ast, globinit)
+    self:puts('}')
   end
 end
 
-function AnalyzeFile(file)
-  local src, err = FileRead(file)
-  if not src and err then return nil, TR("Can't open file '%s': %s"):format(file, err) end
+function Inspector:putValue(v)
+  local tv = type(v)
 
-  return warnings_from_string(src, file)
+  if tv == 'string' then
+    self:puts(smartQuote(escape(v)))
+  elseif tv == 'number' or tv == 'boolean' or tv == 'nil' or
+         tv == 'cdata' or tv == 'ctype' then
+    self:puts(tostring(v))
+  elseif tv == 'table' then
+    self:putTable(v)
+  else
+    self:puts('<', tv, ' ', self:getId(v), '>')
+  end
 end
 
-function AnalyzeString(src, file)
-  return warnings_from_string(src, file or "<string>")
-end
+-------------------------------------------------------------------
 
-local frame = ide.frame
+function inspect.inspect(root, options)
+  options       = options or {}
 
--- insert after "Compile" item
-local _, menu, compilepos = ide:FindMenuItem(ID_COMPILE)
-if compilepos then
-  menu:Insert(compilepos+1, ID_ANALYZE, TR("Analyze")..KSC(ID_ANALYZE), TR("Analyze the source code"))
-end
+  local depth   = options.depth   or math.huge
+  local newline = options.newline or '\n'
+  local indent  = options.indent  or '  '
+  local process = options.process
 
-local function analyzeProgram(editor)
-  -- save all files (if requested) for "infervalue" analysis to keep the changes on disk
-  if ide.config.editor.saveallonrun and ide.config.staticanalyzer.infervalue then SaveAll(true) end
-  if ide:GetLaunchedProcess() == nil and not ide:GetDebugger():IsConnected() then ClearOutput() end
-  ide:GetOutput():Write("Analyzing the source code")
-  frame:Update()
-
-  local editorText = editor:GetTextDyn()
-  local doc = ide:GetDocument(editor)
-  local filePath = doc:GetFilePath() or doc:GetFileName()
-  local warn, err = warnings_from_string(editorText, filePath)
-  if err then -- report compilation error
-    ide:Print((": not completed.\n%s"):format(err))
-    return false
+  if process then
+    root = processRecursive(process, root, {}, {})
   end
 
-  ide:Print((": %s warning%s.")
-    :format(#warn > 0 and #warn or 'no', #warn == 1 and '' or 's'))
-  ide:GetOutput():Write(table.concat(warn, "\n") .. (#warn > 0 and "\n" or ""))
+  local inspector = setmetatable({
+    depth            = depth,
+    level            = 0,
+    buffer           = {},
+    ids              = {},
+    maxIds           = {},
+    newline          = newline,
+    indent           = indent,
+    tableAppearances = countTableAppearances(root)
+  }, Inspector_mt)
 
-  return true -- analyzed ok
+  inspector:putValue(root)
+
+  return table.concat(inspector.buffer)
 end
 
-frame:Connect(ID_ANALYZE, wx.wxEVT_COMMAND_MENU_SELECTED,
-  function ()
-    ide:GetOutput():Activate()
-    local editor = ide:GetEditor()
-    if not analyzeProgram(editor) then
-      CompileProgram(editor, { reportstats = false, keepoutput = true })
-    end
-  end)
-frame:Connect(ID_ANALYZE, wx.wxEVT_UPDATE_UI,
-  function (event) event:Enable(ide:GetEditor() ~= nil) end)
+setmetatable(inspect, { __call = function(_, ...) return inspect.inspect(...) end })
+
+return inspect
+
+
