@@ -1,6 +1,6 @@
 MOD_NAME = minetest.get_current_modname();
 MOD_PATH = minetest.get_modpath(MOD_NAME);
-require("debugger")("127.0.0.1", 10000,"luaidekey")
+--require("debugger")("127.0.0.1", 10000,"luaidekey")
 -- request http_api for being able to send httprequest
 -- note you MUST give the http 
 local http_api = minetest.request_http_api and minetest.request_http_api()
@@ -21,7 +21,8 @@ dofile(MOD_PATH.."/utf8.lua")
 vikidia = {
 	search = "",
 	formname = "vikidia.prova",
-	site = "it.vikidia.org",
+	--site = "it.vikidia.org",
+	site = 'hu.wikipedia.org',
 	composeUrl = "https://${site}/w/api.php?format=json&action=query&prop=extracts"..
 	"&exintro&explaintext&redirects=1&titles=${title}",
 	composeFormspec = table.concat({
