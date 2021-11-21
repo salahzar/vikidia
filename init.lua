@@ -1,6 +1,6 @@
 MOD_NAME = minetest.get_current_modname();
 MOD_PATH = minetest.get_modpath(MOD_NAME);
-require("debugger")("127.0.0.1", 10000,"luaidekey")
+--require("debugger")("127.0.0.1", 10000,"luaidekey")
 
 -- request http_api for being able to send httprequest
 -- note you MUST give the http 
