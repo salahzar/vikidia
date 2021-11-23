@@ -1,8 +1,5 @@
 -- pakkio November 2011
--- it might be useful in many cases
--- parse the input escaped strings \u is treated as if it was \0x
-
--- convert a number to equivalent utf8 string_char
+-- CONVERT a number to equivalent utf8 string_char
 -- for instance utf8(2000) ==> "ߐ"
 -- this is one if not the fastest according to https://stackoverflow.com/a/26237757
 local function utf8(codep)
@@ -22,7 +19,8 @@ local function utf8(codep)
     max_pf = max_pf / 2
   end
 end
-
+-- generate %XX equivalent of special character c and url
+-- see https://gist.github.com/liukun/f9ce7d6d14fa45fe9b924a3eed5c3d99 for origin
 local char_to_hex = function(c)
   return string.format("%%%02X", string.byte(c))
 end
@@ -36,6 +34,7 @@ function urlencode(url)
   return url
 end
 
+-- simple way to convert a text with \u o \x utf8 chars to proper utf8 chars
 function getUtf8(text)
 	local texts = string.gsub(text, "\\u", "\\0x")
 	local out, n = string.gsub(texts,"\\0x(%x%x%x%x)",

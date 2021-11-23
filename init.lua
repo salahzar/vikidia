@@ -12,8 +12,8 @@ dofile(MOD_PATH.."/utf8.lua")
 
 local vikidia = {
   formname = "vikidia.prova",
-  --site = "it.vikidia.org",
-  site = 'it.wikipedia.org',
+  site = "it.vikidia.org",
+  --site = 'it.wikipedia.org',
   composeUrl = "https://${site}/w/api.php?format=json&action=query&prop=extracts"..
   "&exintro&explaintext&redirects=1&titles=${title}",
   -- if you want to change form better to ask help at this page for single fields
@@ -31,19 +31,38 @@ local vikidia = {
 }
 
 local function callWikipedia(search)
-  local url = vikidia.composeUrl %
-    { site = vikidia.site,
-      title = urlencode(search)
-    }
-  local handle = vikidia.api.fetch_async({url = url, timeout = 10})
-  local result
-  repeat
-    result = vikidia.api.fetch_async_get(handle)
-  until (result.completed)
+  if search then
+    minetest.log("calling wikipedia with "..search)
 
-  -- extract only what appears after extract
-  local desc = result.data:match('.*extract":"(.*)"}}}}')
-  return string.gsub(getUtf8(desc),"\\n"," ")
+    local url = vikidia.composeUrl %
+      { site = vikidia.site,
+        title = urlencode(search)
+      }
+    local handle = vikidia.api.fetch_async({url = url, timeout = 10})
+    local result
+    repeat
+      result = vikidia.api.fetch_async_get(handle)
+    until (result.completed)
+    if(result.code~=200) then
+      minetest.log("Not found")
+      return false,""
+    end
+
+    -- extract only what appears after extract
+    local desc = result.data:match('.*extract":"(.*)"}}}}')
+    local status
+    status,desc = pcall(getUtf8,desc)
+    if status then
+      local desc1 = string.gsub(desc,"\\n"," ")
+      minetest.log("Found "..desc1)
+      return true,desc1
+    else
+      minetest.log("Error decoding "..desc)
+      return false,""
+    end
+  else
+    return false,""
+  end
 end
 
 local function getInfoText(position)
@@ -54,6 +73,7 @@ local function getInfoText(position)
 end
 
 local function setInfoText(position,value)
+  minetest.log("set info for pos "..position.." to "..value)
   local nodepos = minetest.string_to_pos(position)
   local meta = minetest.get_meta(nodepos)
   meta.set_string(meta,"infotext",value)
@@ -81,8 +101,9 @@ minetest.register_node("vikidia:sign", {
     local position = minetest.pos_to_string(pos)
     local key = getInfoText(position)
     local desc = ""
+    local status
     if not(key == "") then
-        desc = callWikipedia(key)
+      status,desc = callWikipedia(key)
     end
     showForm(player_name,position,key,desc)
   end
@@ -94,17 +115,17 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
     return false
   end
   -- if exit button just exits
-  if fields.exit then
+  if fields.exit or fields.quit then
     minetest.log("form quit")
     return false
   end
   local position = fields.position
   local search = fields.search
-  local desc = callWikipedia(search)
-  if(not desc) then
+  local status,desc = callWikipedia(search)
+  if(not status) then
     desc = "Questa voce su Vikidia non esiste, prova a scriverla!"
   else
-    setInfoText(position,search)
+    pcall(setInfoText,position,search)
   end
   local player_name=player:get_player_name()
   showForm(player_name,position,search,desc)
