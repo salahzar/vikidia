@@ -33,7 +33,7 @@ minetest.register_on_leaveplayer(
 vikidia = {
   formname = "vikidia.prova",
   --site = "it.vikidia.org",
-  site = 'hu.wikipedia.org',
+  site = 'it.wikipedia.org',
   composeUrl = "https://${site}/w/api.php?format=json&action=query&prop=extracts"..
   "&exintro&explaintext&redirects=1&titles=${title}",
   -- if you want to change form better to ask help at this page for single fields
@@ -75,7 +75,7 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
   -- compose the formspec with search and previous fetched information
   playerEnv.search = fields.search
 
-  local url = vikidia.composeUrl % { site = vikidia.site, title = playerEnv.search }
+  local url = vikidia.composeUrl % { site = vikidia.site, title = urlencode(playerEnv.search) }
 
   -- when http finishes we must collect the data
   local function fetch_callback(result)
@@ -92,7 +92,7 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
       
       -- show the search and what found in the form with scrolling bars if needed
       local formspec = vikidia.composeFormspec % 
-      { search = playerEnv.search, desc = playerEnv.desc }
+      { search = playerEnv.search, desc = minetest.formspec_escape(playerEnv.desc) }
 
       minetest.show_formspec(player_name, vikidia.formname, formspec)
     end
@@ -122,7 +122,7 @@ minetest.register_node("vikidia:sign", {
       playerEnvs[player_name]=playerEnv
     end
 
-    local formspec = vikidia.composeFormspec % { search = playerEnv.search, desc = playerEnv.desc }	
+    local formspec = vikidia.composeFormspec % { search = playerEnv.search, desc = minetest.formspec_escape(playerEnv.desc) }	
     minetest.log(formspec)
     minetest.show_formspec(player_name, vikidia.formname, formspec)
   end	

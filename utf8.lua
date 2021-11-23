@@ -23,6 +23,18 @@ local function utf8(codep)
   end
 end
 
+local char_to_hex = function(c)
+  return string.format("%%%02X", string.byte(c))
+end
+function urlencode(url)
+  if url == nil then
+    return
+  end
+  --url = url:gsub("\n", "\r\n")
+  url = string.gsub(url,"([^%w ])", char_to_hex)
+  url = url:gsub(" ", "+")
+  return url
+end
 
 function getUtf8(text)
 	local texts = string.gsub(text, "\\u", "\\0x")
