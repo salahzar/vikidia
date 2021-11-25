@@ -1,6 +1,6 @@
 MOD_NAME = minetest.get_current_modname();
 MOD_PATH = minetest.get_modpath(MOD_NAME);
-require("debugger")("127.0.0.1", 10000,"luaidekey")
+--require("debugger")("127.0.0.1", 10000,"luaidekey")
 local http_api = minetest.request_http_api and minetest.request_http_api()
 if not http_api then
   minetest.log("MOD ${mod}: ERROR You must provide http right to this mod to work" % {mod = MOD_NAME})
@@ -16,18 +16,18 @@ local vikidia = {
   --site = 'it.wikipedia.org',
   --composeUrl = "https://${site}/w/api.php?format=json&action=query&prop=extracts"..
   "&exintro&explaintext&redirects=1&titles=${title}",
-  composeUrl = "http://alisl.org/proxy.php/name=${title}",
+  composeUrl = "http://alisl.org/proxy.php?name=${title}",
   -- if you want to change form better to ask help at this page for single fields
   -- use https://luk3yx.gitlab.io/minetest-formspec-editor/ for changing formspec
   composeFormspec = [[
-    formspec_version[4]
-    size[10.5,12]
-    button[6.7,2.5;3,1.1;;Search]
-    button_exit[7.5,0.1;3,1;exit;Exit]
-    field[1.4,2.6;5,0.8;search;search;${search}]
-    textarea[0.9,4.5;9,5.9;;;${desc}]
-    textarea[0.5,10.9;9.8,0.9;position;;${position}]
-  
+      formspec_version[4]
+      size[10.5,12]
+      button_exit[0.5,2.8;3,1;exit;Esci]
+      button[6.7,0.7;3,1.1;;Leggi la pagina!]
+      field[0.6,0.9;5,0.8;search;Ricerca Voce Vikidia;${search}]
+      textarea[0.9,4.5;9,5.9;;;${desc}]
+      textarea[0.5,10.9;9.8,0.9;position;;${position}]
+      field_close_on_enter[search;false]
     ]],
   api = http_api,
 }
