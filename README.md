@@ -14,5 +14,19 @@ otherwise a not present info is shown.
 For instance in italian wikipedia searching for "gatto" returns
 ""
 
-When found the main search key 
+The https call seems leaking and not working after a while so I had to use a php proxy with the following code
+
+  <?php
+  $get=$_GET["name"];
+  $url="https://it.vikidia.org/w/api.php?format=json&action=query&prop=extracts&exintro&explaintext&redirects=1&titles=".$_GET["name"];
+  //echo($url);
+  $ch = curl_init($url);
+
+  curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+
+  $output = curl_exec($ch);
+  curl_close($ch);
+  echo($output);
+  ?>
+
 
