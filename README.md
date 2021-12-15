@@ -11,6 +11,10 @@ Search for searching a word with search button
 when pressed the wikipedia like site is called and the extract is shown in the underlying field if present
 otherwise a not present info is shown.
 
+Mod takes particular care in handling utf8 chars. They are returned in the unicode form so must be translated
+carefully to avoid awkward translitterations.
+
+
 For instance in italian wikipedia searching for "gatto" returns
 ""
 
