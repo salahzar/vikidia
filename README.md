@@ -14,8 +14,9 @@ otherwise a not present info is shown.
 For instance in italian wikipedia searching for "gatto" returns
 ""
 
-The https call seems leaking and not working after a while so I had to use a php proxy with the following code
+The https call seems leaking and not working after a while so I had to use a php proxy with the following code and pointing to that.
 
+```php
   <?php
   $get=$_GET["name"];
   $url="https://it.vikidia.org/w/api.php?format=json&action=query&prop=extracts&exintro&explaintext&redirects=1&titles=".$_GET["name"];
@@ -28,5 +29,5 @@ The https call seems leaking and not working after a while so I had to use a php
   curl_close($ch);
   echo($output);
   ?>
-
+```
 
