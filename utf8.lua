@@ -2,6 +2,7 @@
 -- CONVERT a number to equivalent utf8 string_char
 -- for instance utf8(2000) ==> "ߐ"
 -- this is one if not the fastest according to https://stackoverflow.com/a/26237757
+minetest.log("function utf8...")
 local function utf8(codep)
   -- if ascii number then just do string.char
   if codep < 128 then
@@ -21,9 +22,11 @@ local function utf8(codep)
 end
 -- generate %XX equivalent of special character c and url
 -- see https://gist.github.com/liukun/f9ce7d6d14fa45fe9b924a3eed5c3d99 for origin
+minetest.log("function char_to_hex...")
 local char_to_hex = function(c)
   return string.format("%%%02X", string.byte(c))
 end
+minetest.log("function urlencode...")
 function urlencode(url)
   if url == nil then
     return
@@ -33,7 +36,7 @@ function urlencode(url)
   url = url:gsub(" ", "+")
   return url
 end
-
+minetest.log("function getUtf8...")
 -- simple way to convert a text with \u o \x utf8 chars to proper utf8 chars
 function getUtf8(text)
 	local texts = string.gsub(text, "\\u", "\\0x")
