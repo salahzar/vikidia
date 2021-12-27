@@ -1,6 +1,6 @@
 MOD_NAME = minetest.get_current_modname();
 MOD_PATH = minetest.get_modpath(MOD_NAME);
-require("debugger")("127.0.0.1", 10000,"luaidekey")
+--require("debugger")("127.0.0.1", 10000,"luaidekey")
 local http_api = minetest.request_http_api and minetest.request_http_api()
 if not http_api then
   minetest.log("MOD ${mod}: ERROR You must provide http right to this mod to work" % {mod = MOD_NAME})
